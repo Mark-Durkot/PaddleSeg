@@ -4,7 +4,6 @@ iters: 80000
 train_dataset:
   type: Cityscapes
   dataset_root: /content/drive/MyDrive/Cityscapes/Cityscapes
-  num_workers: 4
   transforms:
     - type: ResizeStepScaling
       min_scale_factor: 0.5
@@ -23,7 +22,6 @@ train_dataset:
 val_dataset:
   type: Cityscapes
   dataset_root: /content/drive/MyDrive/Cityscapes/Cityscapes
-  num_workers: 4
   transforms:
     - type: Normalize
   mode: val
