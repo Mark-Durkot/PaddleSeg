@@ -2,7 +2,7 @@
 # pixel value = class id 0–6, not RGB).
 
 batch_size: 8
-iters: 80000
+iters: 160000
 
 train_dataset:
   type: VDD
