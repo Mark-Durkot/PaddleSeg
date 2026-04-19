@@ -6,7 +6,7 @@ iters: 80000
 
 train_dataset:
   type: VDD
-  dataset_root: data/VDD
+  dataset_root: /content/datasets/VDD
   transforms:
     - type: ResizeStepScaling
       min_scale_factor: 0.5
@@ -24,7 +24,7 @@ train_dataset:
 
 val_dataset:
   type: VDD
-  dataset_root: data/VDD
+  dataset_root: /content/datasets/VDD
   transforms:
     - type: Normalize
   mode: val
