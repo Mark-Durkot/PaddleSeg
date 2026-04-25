@@ -1,7 +1,7 @@
 _base_: '../_base_/vdd.yml'
 
 batch_size: 8
-iters: 200000
+iters: 300000
 
 optimizer:
   weight_decay: 5.0e-4
