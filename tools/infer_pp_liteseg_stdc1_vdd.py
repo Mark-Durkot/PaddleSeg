@@ -14,7 +14,8 @@
 
 """
 Batch inference for PPLiteSeg (STDC1 backbone, VDD / 7 classes) with per-image
-latency logging and a summary plot.
+latency logging and a summary plot. Saved masks and overlays include a legend
+(class id and name, with swatch colors matching the pseudo-color map).
 
 Example:
   python tools/infer_pp_liteseg_stdc1_vdd.py \\
@@ -25,6 +26,7 @@ Example:
 
 import argparse
 import csv
+import importlib.util
 import os
 import time
 
@@ -43,6 +45,66 @@ DEFAULT_CONFIG = os.path.normpath(
     os.path.join(
         os.path.dirname(__file__), '..',
         'configs/pp_liteseg/pp_liteseg_stdc1_vdd_512x512_160k.yml'))
+
+
+def _vdd_class_definitions():
+    """Load (class_id, name) from tools/data/vdd_labels.py without requiring tools as a package."""
+    path = os.path.join(os.path.dirname(__file__), 'data', 'vdd_labels.py')
+    spec = importlib.util.spec_from_file_location('vdd_labels', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return list(mod.CLASSES)
+
+
+def add_class_legend_bgr(im_bgr, flat_color_map, class_rows):
+    """
+    Draw a class id + name legend on a BGR image using colors from flat_color_map
+    (same layout as paddleseg visualize: RGB triplets per class index).
+    """
+    if im_bgr is None or im_bgr.size == 0:
+        return im_bgr
+    h, w = im_bgr.shape[:2]
+    margin = 8
+    line_h = 22
+    pad = 6
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5
+    thickness = 1
+    max_tw = 0
+    for cid, name in class_rows:
+        txt = '{}: {}'.format(cid, name)
+        (tw, th), _ = cv2.getTextSize(txt, font, font_scale, thickness)
+        max_tw = max(max_tw, tw)
+    sw = 16
+    legend_w = min(w - 2 * margin, pad * 2 + sw + 6 + max_tw)
+    legend_h = pad * 2 + len(class_rows) * line_h
+    x0 = margin
+    y0 = max(margin, h - legend_h - margin)
+
+    cv2.rectangle(
+        im_bgr, (x0, y0), (x0 + legend_w - 1, y0 + legend_h - 1), (252, 252, 252), -1)
+    cv2.rectangle(
+        im_bgr, (x0, y0), (x0 + legend_w - 1, y0 + legend_h - 1), (55, 55, 55), 1)
+
+    y_text = y0 + pad + 15
+    for cid, name in class_rows:
+        r = int(flat_color_map[cid * 3])
+        g = int(flat_color_map[cid * 3 + 1])
+        b = int(flat_color_map[cid * 3 + 2])
+        color_bgr = (b, g, r)
+        xs = x0 + pad
+        cv2.rectangle(im_bgr, (xs, y_text - 13), (xs + sw - 1, y_text + 3), color_bgr, -1)
+        cv2.rectangle(im_bgr, (xs, y_text - 13), (xs + sw - 1, y_text + 3), (30, 30, 30), 1)
+        txt = '{}: {}'.format(cid, name)
+        cv2.putText(
+            im_bgr,
+            txt, (xs + sw + 5, y_text),
+            font,
+            font_scale, (25, 25, 25),
+            thickness,
+            lineType=cv2.LINE_AA)
+        y_text += line_h
+    return im_bgr
 
 
 def mkdir(path):
@@ -209,6 +271,16 @@ def main():
     color_map = visualize.get_color_map_list(
         256, custom_color=tc.get('custom_color'))
 
+    try:
+        all_class_rows = _vdd_class_definitions()
+    except Exception as e:
+        logger.warning('Could not load tools/data/vdd_labels.py ({}); using built-in names.'.
+                         format(e))
+        all_class_rows = [(0, 'other'), (1, 'wall'), (2, 'road'), (3, 'vegetation'),
+                          (4, 'vehicle'), (5, 'roof'), (6, 'water')]
+    num_classes = cfg.model_cfg.get('num_classes', len(all_class_rows))
+    class_rows = [row for row in all_class_rows if row[0] < num_classes]
+
     names = []
     times_ms = []
 
@@ -242,6 +314,8 @@ def main():
             use_ml = tc.get('use_multilabel', False)
             overlay = utils.visualize.visualize(
                 im_path, pred, color_map, weight=0.6, use_multilabel=use_ml)
+            if not use_ml and class_rows:
+                add_class_legend_bgr(overlay, color_map, class_rows)
             overlay_path = os.path.join(overlays_dir, im_file)
             mkdir(overlay_path)
             cv2.imwrite(overlay_path, overlay)
@@ -251,7 +325,13 @@ def main():
             mask_path = os.path.join(
                 masks_dir, os.path.splitext(im_file)[0] + '.png')
             mkdir(mask_path)
-            pred_mask.save(mask_path)
+            if not use_ml and class_rows:
+                mask_bgr = cv2.cvtColor(
+                    np.asarray(pred_mask.convert('RGB')), cv2.COLOR_RGB2BGR)
+                add_class_legend_bgr(mask_bgr, color_map, class_rows)
+                cv2.imwrite(mask_path, mask_bgr)
+            else:
+                pred_mask.save(mask_path)
 
             names.append(im_path)
             times_ms.append(elapsed_ms)
